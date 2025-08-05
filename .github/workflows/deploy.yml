@@ -34,7 +34,7 @@ jobs:
         run: npx cdk synth
 
       - name: Upload CDK Artifact
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: cdk-artifact
           path: cdk.out
