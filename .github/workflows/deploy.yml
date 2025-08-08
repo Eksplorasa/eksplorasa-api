@@ -1,0 +1,82 @@
+name: Build and Deploy Backend
+
+on:
+  pull_request:
+    branches: [ main ]
+  push:
+    branches: [ main ]
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  # 1. Build and Test the CDK App
+  build:
+    runs-on: ubuntu-latest
+    outputs:
+      outcome: ${{ steps.build_step.outcome }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 18
+          cache: 'npm'
+
+      - name: Install Dependencies
+        run: npm ci
+
+      - name: Synthesize CDK App
+        id: build_step
+        run: npx cdk synth
+
+      - name: Upload CDK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: cdk-artifact
+          path: cdk.out
+
+  # 2. Deploy to Development (only on merge to main)
+  deploy-dev:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    needs: build # This job depends on the build job
+    steps:
+      - name: Configure AWS Credentials for Dev
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.DEV_AWS_ROLE_ARN }}
+          aws-region: ${{ secrets.DEV_AWS_REGION }}
+
+      - name: Download CDK Artifact
+        uses: actions/download-artifact@v3
+        with:
+          name: cdk-artifact
+      
+      - name: Deploy to Dev
+        run: npx cdk deploy --app . --require-approval never
+
+  # 3. Deploy to Production (with manual approval)
+  deploy-prod:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    needs: deploy-dev # Depends on dev deployment
+    environment:
+      name: production
+    steps:
+      - name: Configure AWS Credentials for Prod
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.PROD_AWS_ROLE_ARN }}
+          aws-region: ${{ secrets.PROD_AWS_REGION }}
+
+      - name: Download CDK Artifact
+        uses: actions/download-artifact@v3
+        with:
+          name: cdk-artifact
+      
+      - name: Deploy to Prod
+        run: npx cdk deploy --app . --require-approval never
