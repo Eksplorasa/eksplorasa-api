@@ -57,7 +57,7 @@ jobs:
           name: cdk-artifact
       
       - name: Deploy to Dev
-        run: npx cdk deploy --app . --require-approval never
+        run: npx cdk deploy --context stage=dev --require-approval never
 
   # 3. Deploy to Production (with manual approval)
   deploy-prod:
@@ -79,4 +79,4 @@ jobs:
           name: cdk-artifact
       
       - name: Deploy to Prod
-        run: npx cdk deploy --app . --require-approval never
+        run: npx cdk deploy --context stage=prod --require-approval never
