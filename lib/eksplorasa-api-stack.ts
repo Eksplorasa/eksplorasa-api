@@ -3,6 +3,7 @@ import { Construct } from 'constructs';
 import * as lambda from 'aws-cdk-lib/aws-lambda';
 import * as rds from 'aws-cdk-lib/aws-rds';
 import * as ec2 from 'aws-cdk-lib/aws-ec2';
+import * as apigateway from 'aws-cdk-lib/aws-apigateway';
 
 export class EksplorasaApiStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props?: cdk.StackProps) {
@@ -140,6 +141,78 @@ export class EksplorasaApiStack extends cdk.Stack {
     new cdk.CfnOutput(this, `CustomerHomepageUrl-${stage}`, {
       value: customerHomepageFunctionUrl.url,
       exportName: `EksplorasaApi-${stage}-CustomerHomepageUrl`,
+    });
+
+    // Create browse API lambda
+    const browseApiLambda = new lambda.Function(this, `BrowseApiLambda-${stage}`, {
+      runtime: lambda.Runtime.PYTHON_3_11,
+      code: lambda.Code.fromAsset('lambda', {
+        exclude: ['requirements.txt'], // Exclude requirements.txt since we're using layers
+      }),
+      handler: 'browse_api.handler',
+      functionName: `eksplorasa-browse-api-${stage}`,
+      layers: [pg8000Layer],
+      vpc: vpc,
+      vpcSubnets: {
+        subnetType: ec2.SubnetType.PUBLIC, // Move lambda to public subnet same as database
+      },
+      securityGroups: [lambdaSecurityGroup],
+      allowPublicSubnet: true, // Allow lambda in public subnet
+      environment: {
+        DB_ENDPOINT: database.instanceEndpoint.hostname, // Use direct DB endpoint instead of proxy
+        DB_PORT: '5432',
+        DB_NAME: 'postgres',
+        DB_USERNAME: 'eksplorasa',
+        DB_PASSWORD: 'eksplorasa2025',
+      },
+      timeout: cdk.Duration.seconds(30),
+    });
+
+    // Create API Gateway for Browse API
+    const browseApi = new apigateway.RestApi(this, `BrowseApi-${stage}`, {
+      restApiName: `Eksplorasa Browse API - ${stage}`,
+      description: 'REST API for browsing restaurants with filtering capabilities',
+      defaultCorsPreflightOptions: {
+        allowOrigins: apigateway.Cors.ALL_ORIGINS,
+        allowMethods: apigateway.Cors.ALL_METHODS,
+        allowHeaders: ['Content-Type', 'X-Amz-Date', 'Authorization', 'X-Api-Key'],
+      },
+      deployOptions: {
+        stageName: stage,
+        loggingLevel: apigateway.MethodLoggingLevel.OFF,
+        dataTraceEnabled: false,
+        metricsEnabled: true,
+      },
+    });
+
+    // Create Lambda integration for Browse API
+    const browseIntegration = new apigateway.LambdaIntegration(browseApiLambda, {
+      requestTemplates: { 'application/json': '{ "statusCode": "200" }' },
+    });
+
+    // Define API routes for Browse API
+    const explore = browseApi.root.addResource('explore');
+    explore.addMethod('GET', browseIntegration, {
+      requestParameters: {
+        'method.request.querystring.sort': false,
+        'method.request.querystring.timeStart': false,
+        'method.request.querystring.timeEnd': false,
+        'method.request.querystring.minPrice': false,
+        'method.request.querystring.maxPrice': false,
+        'method.request.querystring.cuisines': false,
+        'method.request.querystring.bagTypes': false,
+        'method.request.querystring.maxDistance': false,
+        'method.request.querystring.latitude': false,
+        'method.request.querystring.longitude': false,
+      },
+    });
+
+
+    // Export the Browse API URL for reference
+    new cdk.CfnOutput(this, `BrowseApiUrl-${stage}`, {
+      value: browseApi.url,
+      exportName: `EksplorasaApi-${stage}-BrowseApiUrl`,
+      description: 'Browse API Gateway URL',
     });
   }
 }
