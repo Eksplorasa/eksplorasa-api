@@ -3,6 +3,7 @@ import { Construct } from 'constructs';
 import * as lambda from 'aws-cdk-lib/aws-lambda';
 import * as rds from 'aws-cdk-lib/aws-rds';
 import * as ec2 from 'aws-cdk-lib/aws-ec2';
+import * as apigateway from 'aws-cdk-lib/aws-apigateway';
 
 export class EksplorasaApiStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props?: cdk.StackProps) {
@@ -140,6 +141,112 @@ export class EksplorasaApiStack extends cdk.Stack {
     new cdk.CfnOutput(this, `CustomerHomepageUrl-${stage}`, {
       value: customerHomepageFunctionUrl.url,
       exportName: `EksplorasaApi-${stage}-CustomerHomepageUrl`,
+    });
+
+    // Create Customer Profiles Lambda functions
+    const getCustomerProfileLambda = new lambda.Function(this, `GetCustomerProfileLambda-${stage}`, {
+      runtime: lambda.Runtime.PYTHON_3_11,
+      code: lambda.Code.fromAsset('lambda', {
+        exclude: ['requirements.txt'],
+      }),
+      handler: 'get_customer_profile.handler',
+      functionName: `eksplorasa-get-customer-profile-${stage}`,
+      layers: [pg8000Layer],
+      vpc: vpc,
+      vpcSubnets: {
+        subnetType: ec2.SubnetType.PUBLIC,
+      },
+      securityGroups: [lambdaSecurityGroup],
+      allowPublicSubnet: true,
+      environment: {
+        DB_ENDPOINT: database.instanceEndpoint.hostname,
+        DB_PORT: '5432',
+        DB_NAME: `eksplorasa${stage}`,
+        DB_USERNAME: 'eksplorasa',
+        DB_PASSWORD: 'eksplorasa2025',
+      },
+      timeout: cdk.Duration.seconds(30),
+    });
+
+    const createCustomerProfileLambda = new lambda.Function(this, `CreateCustomerProfileLambda-${stage}`, {
+      runtime: lambda.Runtime.PYTHON_3_11,
+      code: lambda.Code.fromAsset('lambda', {
+        exclude: ['requirements.txt'],
+      }),
+      handler: 'create_customer_profile.handler',
+      functionName: `eksplorasa-create-customer-profile-${stage}`,
+      layers: [pg8000Layer],
+      vpc: vpc,
+      vpcSubnets: {
+        subnetType: ec2.SubnetType.PUBLIC,
+      },
+      securityGroups: [lambdaSecurityGroup],
+      allowPublicSubnet: true,
+      environment: {
+        DB_ENDPOINT: database.instanceEndpoint.hostname,
+        DB_PORT: '5432',
+        DB_NAME: `eksplorasa${stage}`,
+        DB_USERNAME: 'eksplorasa',
+        DB_PASSWORD: 'eksplorasa2025',
+      },
+      timeout: cdk.Duration.seconds(30),
+    });
+
+    const updateCustomerProfileLambda = new lambda.Function(this, `UpdateCustomerProfileLambda-${stage}`, {
+      runtime: lambda.Runtime.PYTHON_3_11,
+      code: lambda.Code.fromAsset('lambda', {
+        exclude: ['requirements.txt'],
+      }),
+      handler: 'update_customer_profile.handler',
+      functionName: `eksplorasa-update-customer-profile-${stage}`,
+      layers: [pg8000Layer],
+      vpc: vpc,
+      vpcSubnets: {
+        subnetType: ec2.SubnetType.PUBLIC,
+      },
+      securityGroups: [lambdaSecurityGroup],
+      allowPublicSubnet: true,
+      environment: {
+        DB_ENDPOINT: database.instanceEndpoint.hostname,
+        DB_PORT: '5432',
+        DB_NAME: `eksplorasa${stage}`,
+        DB_USERNAME: 'eksplorasa',
+        DB_PASSWORD: 'eksplorasa2025',
+      },
+      timeout: cdk.Duration.seconds(30),
+    });
+
+    // Create API Gateway
+    const api = new apigateway.RestApi(this, `CustomerProfilesApi-${stage}`, {
+      restApiName: `Customer Profiles API - ${stage}`,
+      description: 'API for managing customer profiles',
+      deployOptions: {
+        stageName: stage,
+      },
+      defaultCorsPreflightOptions: {
+        allowOrigins: apigateway.Cors.ALL_ORIGINS,
+        allowMethods: apigateway.Cors.ALL_METHODS,
+        allowHeaders: ['Content-Type', 'X-Amz-Date', 'Authorization', 'X-Api-Key'],
+      },
+    });
+
+    // Create /profiles resource
+    const profiles = api.root.addResource('profiles');
+    
+    // GET /profiles/{customer_id}
+    const customerId = profiles.addResource('{customer_id}');
+    customerId.addMethod('GET', new apigateway.LambdaIntegration(getCustomerProfileLambda));
+    
+    // POST /profiles
+    profiles.addMethod('POST', new apigateway.LambdaIntegration(createCustomerProfileLambda));
+    
+    // PUT /profiles/{customer_id}
+    customerId.addMethod('PUT', new apigateway.LambdaIntegration(updateCustomerProfileLambda));
+
+    // Output the API Gateway URL
+    new cdk.CfnOutput(this, `CustomerProfilesApiUrl-${stage}`, {
+      value: api.url,
+      exportName: `EksplorasaApi-${stage}-CustomerProfilesApiUrl`,
     });
   }
 }
